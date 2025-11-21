@@ -3,7 +3,7 @@ import react from '@vitejs/plugin-react'
 import path from 'path'
 
 export default defineConfig({
-  base: '/CDAR-Hackathon/',
+  base: 'cdar-hackthon',
   plugins: [react()],
   resolve: {
     alias: {

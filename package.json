@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
-  "homepage": "https://gokulnath-t_niq.github.io/CDAR-Hackathon",
+  "homepage": "https://github.com/gokulnath30/cdar-hackthon/",
   "scripts": {
     "dev": "vite",
     "clean": "rimraf dist node_modules",

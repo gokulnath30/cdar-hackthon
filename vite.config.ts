@@ -3,7 +3,7 @@ import react from '@vitejs/plugin-react'
 import path from 'path'
 
 export default defineConfig({
-  base: 'cdar-hackthon',
+  base: '/cdar-hackthon/',
   plugins: [react()],
   resolve: {
     alias: {
@@ -12,6 +12,7 @@ export default defineConfig({
   },
   build: {
     rollupOptions: {
+      input: "index.html",
       output: {
         manualChunks: {
           'react-vendor': ['react', 'react-dom', 'react-router-dom'],

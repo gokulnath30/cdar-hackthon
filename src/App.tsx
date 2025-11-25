@@ -14,7 +14,7 @@ import { localStorageService } from './lib/localStorageService';
 import ProductsPage from "./pages/Products";
 import ProfilePage from "./pages/Profile";
 import { TranscriberProvider } from "./context/TranscriberProvider";
-import LlmTester from "./pages/LlmTester";
+import {LlmTester} from "./pages/LlmTester";
 import { RouterController } from "./components/Controller";
 
 localStorageService.initializeDatabase();

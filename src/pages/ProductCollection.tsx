@@ -11,7 +11,7 @@ import { useLocalStorageDB } from "@/lib/useLocalStorageDB";
 const ProductCollection = () => {
   const navigate = useNavigate();
   const { storeId } = localStorage.getItem('current_product') ? { storeId: localStorage.getItem('current_product') } : { storeId: "0" };
-  const [isListening, setIsListening] = useState(true);
+  const [isListening, setIsListening] = useState(false);
   const Product = useLocalStorageDB();
   const updateProduct = Product.updateProduct;
 

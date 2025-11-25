@@ -1,10 +1,10 @@
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
-import { Home, MapPin, ShoppingBag, LogOut, Mic, User, X, Loader2, Volume2, VolumeX } from "lucide-react";
+import { Home, MapPin, ShoppingBag, LogOut, Mic, User, X, Loader2 } from "lucide-react";
 import { Button } from "../components/ui/button";
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useGlobalTranscriber } from "../context/TranscriberProvider";
 import Constants from "../utils/Constants";
-import { generate, chatReply, ChatMessage, subscribeLlmStatus } from "../lib/llm";
+import { useChat } from "../hooks/useChat";
 
 // Get current user ID from local storage
 const userId = localStorage.getItem("audit_app_current_user");
@@ -24,20 +24,12 @@ const BottomNav = () => {
   const [showOverlay, setShowOverlay] = useState(false);
   const [transcript, setTranscript] = useState<string>("");
   const [isTranscribing, setIsTranscribing] = useState(false);
-  const [chat, setChat] = useState<ChatMessage[]>([
-    { role: "system", content: "You are a helpful assistant. Use concise answers." }
-  ]);
-  const [isGeneratingLLM, setIsGeneratingLLM] = useState(false);
-  const [lastLLMReply, setLastLLMReply] = useState<string>("");
-  const [llmLoadingPct, setLlmLoadingPct] = useState<number | null>(null);
-  const [llmLoadingShard, setLlmLoadingShard] = useState<string | null>(null);
+
+  const { sendMessage, messages } = useChat();
+
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const transcriber = useGlobalTranscriber();
-
-  // TTS state
-  const [isSpeaking, setIsSpeaking] = useState(false);
-  const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
 
   // Whisper model progress
   const [whisperPct, setWhisperPct] = useState<number | null>(null);
@@ -111,21 +103,6 @@ const BottomNav = () => {
     }
   };
 
-  const runLLM = useCallback(async (finalTranscript: string) => {
-    if (!finalTranscript.trim() || isGeneratingLLM) return;
-    setIsGeneratingLLM(true);
-    try {
-      const { assistantText, messages } = await chatReply(chat, finalTranscript);
-      setChat(messages);
-      setLastLLMReply(assistantText);
-    } catch (e) {
-      console.error("LLM error", e);
-      setLastLLMReply("LLM error.");
-    } finally {
-      setIsGeneratingLLM(false);
-    }
-  }, [chat, isGeneratingLLM]);
-
   useEffect(() => {
     const liveHandler = (e: Event) => {
       const detail = (e as CustomEvent).detail as { fullText: string; isBusy: boolean };
@@ -134,73 +111,28 @@ const BottomNav = () => {
         setTranscript(detail.fullText || "Transcribing...");
         setIsTranscribing(true);
       } else {
-        setTranscript(detail.fullText || "");
+        console.log("full transcription: ",detail.fullText);
+        const text = detail.fullText || "";
+        setTranscript(text);
         setIsTranscribing(false);
         setIsRecording(false);
-        // Call LLM once final transcript ready
-        runLLM(detail.fullText || "");
+
+        if (text.trim()) {
+          sendMessage(text);
+        }
       }
     };
     window.addEventListener("live-transcription", liveHandler);
     return () => window.removeEventListener("live-transcription", liveHandler);
-  }, [showOverlay, runLLM]);
+  }, [showOverlay, sendMessage]);
 
-  // Speak assistant reply automatically (optional: comment out if not desired)
+  // Log LLM response
   useEffect(() => {
-    if (!lastLLMReply || isGeneratingLLM) return;
-    speak(lastLLMReply);
-  }, [lastLLMReply]);
-
-  const speak = (text: string) => {
-    if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
-    stopSpeaking();
-    const utter = new SpeechSynthesisUtterance(text);
-    utter.rate = 1.0;
-    utter.pitch = 1.0;
-    utter.lang = "en-US";
-    utter.onend = () => setIsSpeaking(false);
-    utter.onerror = () => setIsSpeaking(false);
-    utteranceRef.current = utter;
-    window.speechSynthesis.speak(utter);
-    setIsSpeaking(true);
-  };
-
-  const stopSpeaking = () => {
-    if (!("speechSynthesis" in window)) return;
-    window.speechSynthesis.cancel();
-    setIsSpeaking(false);
-  };
-
-  const toggleSpeak = () => {
-    if (isSpeaking) {
-      stopSpeaking();
-    } else if (lastLLMReply) {
-      speak(lastLLMReply);
+    const lastMessage = messages[messages.length - 1];
+    if (lastMessage && lastMessage.role === 'assistant') {
+      console.log("LLM Response:", lastMessage.content);
     }
-  };
-
-  useEffect(() => {
-    return () => {
-      stopSpeaking();
-    };
-  }, []);
-
-  // LLM and Whisper progress subscription
-  useEffect(() => {
-    const unsub = subscribeLlmStatus(e => {
-      if (e.type === 'loading-start') {
-        setLlmLoadingPct(0);
-        setLlmLoadingShard(null);
-      } else if (e.type === 'loading-progress') {
-        if (e.percent !== undefined) setLlmLoadingPct(e.percent);
-        if (e.file) setLlmLoadingShard(e.file);
-      } else if (e.type === 'loading-complete') {
-        setLlmLoadingPct(null);
-        setLlmLoadingShard(null);
-      }
-    });
-    return unsub;
-  }, []);
+  }, [messages]);
 
   // Listen for whisper progress custom events (dispatch these from transcriber implementation)
   useEffect(() => {
@@ -250,51 +182,11 @@ const BottomNav = () => {
                 <span>Transcribing...</span>
               </div>
             )}
-
-            {/* LLM reply */}
-            {(lastLLMReply || isGeneratingLLM) && (
-              <div className="rounded bg-white/10 px-2 py-1 flex items-start gap-2">
-                <span className="text-green-200">Assistant: </span>
-                {isGeneratingLLM ? (
-                  <span className="opacity-70">Thinking...</span>
-                ) : (
-                  <span className="flex-1">{lastLLMReply}</span>
-                )}
-                {!isGeneratingLLM && lastLLMReply && (
-                  <button
-                    onClick={toggleSpeak}
-                    className="text-white/70 hover:text-white p-1 rounded"
-                    aria-label={isSpeaking ? "Stop audio" : "Play audio"}
-                  >
-                    {isSpeaking ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
-                  </button>
-                )}
-              </div>
-            )}
           </div>
 
-          {/* LLM and Whisper progress */}
-          {(llmLoadingPct !== null || whisperPct !== null) && (
+          {/* Whisper progress */}
+          {(whisperPct !== null) && (
             <div className="space-y-2">
-              {llmLoadingPct !== null && (
-                <div>
-                  <div className="flex justify-between mb-1">
-                    <span className="text-white/80">LLM model</span>
-                    <span>{llmLoadingPct.toFixed(1)}%</span>
-                  </div>
-                  <div className="h-2 bg-white/10 rounded overflow-hidden">
-                    <div
-                      style={{ width: `${llmLoadingPct}%` }}
-                      className="h-full bg-blue-500 transition-all"
-                    />
-                  </div>
-                  {llmLoadingShard && (
-                    <div className="mt-1 text-[10px] opacity-70 truncate">
-                      {llmLoadingShard}
-                    </div>
-                  )}
-                </div>
-              )}
               {whisperPct !== null && (
                 <div>
                   <div className="flex justify-between mb-1">
@@ -324,7 +216,6 @@ const BottomNav = () => {
               <button
                 onClick={() => {
                   setTranscript("");
-                  setLastLLMReply("");
                   startRecording();
                 }}
                 className="px-2 py-1 rounded bg-blue-600/80 hover:bg-blue-600 text-white text-[11px] font-medium"

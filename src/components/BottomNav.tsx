@@ -32,6 +32,9 @@ const BottomNav = () => {
   const audioChunksRef = useRef<Blob[]>([]);
   const transcriber = useGlobalTranscriber();
 
+  // Ref to prevent re-processing the same message on re-renders
+  const lastProcessedMessageRef = useRef<string | null>(null);
+
   // Whisper model progress
   const [whisperPct, setWhisperPct] = useState<number | null>(null);
 
@@ -132,6 +135,18 @@ const BottomNav = () => {
   useEffect(() => {
     const lastMessage = messages[messages.length - 1];
     if (lastMessage && lastMessage.role === 'assistant') {
+      
+      // Create a simple signature for the message to identify it uniquely
+      const messageSignature = `${messages.length}-${lastMessage.content.substring(0, 20)}`;
+
+      // Check if we already processed this message
+      if (lastProcessedMessageRef.current === messageSignature) {
+        return;
+      }
+
+      // Mark as processed
+      lastProcessedMessageRef.current = messageSignature;
+
       console.log("LLM Response:", lastMessage.content);
       
       let textToSpeak = lastMessage.content;

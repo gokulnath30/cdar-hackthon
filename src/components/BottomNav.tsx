@@ -23,6 +23,7 @@ const BottomNav = () => {
   const [isRecording, setIsRecording] = useState(false);
   const [showOverlay, setShowOverlay] = useState(false);
   const [transcript, setTranscript] = useState<string>("");
+  const [assistantResponse, setAssistantResponse] = useState<string>("");
   const [isTranscribing, setIsTranscribing] = useState(false);
 
   const { sendMessage, messages } = useChat();
@@ -50,6 +51,7 @@ const BottomNav = () => {
 
   const startRecording = async () => {
     try {
+      setAssistantResponse("");
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const mr = new MediaRecorder(stream);
       mediaRecorderRef.current = mr;
@@ -131,8 +133,49 @@ const BottomNav = () => {
     const lastMessage = messages[messages.length - 1];
     if (lastMessage && lastMessage.role === 'assistant') {
       console.log("LLM Response:", lastMessage.content);
+      
+      let textToSpeak = lastMessage.content;
+      let command = null;
+
+      try {
+        const parsed = JSON.parse(lastMessage.content);
+        if (parsed.TEXT) textToSpeak = parsed.TEXT;
+        if (parsed.CMD) command = parsed.CMD;
+      } catch (e) {
+        // Content is not JSON, treat as plain text
+      }
+
+      setAssistantResponse(textToSpeak);
+
+      // Speak the text
+      if (textToSpeak) {
+        // Cancel any ongoing speech
+        window.speechSynthesis.cancel();
+        const utterance = new SpeechSynthesisUtterance(textToSpeak);
+        window.speechSynthesis.speak(utterance);
+      }
+
+      // Handle navigation commands
+      if (command) {
+        switch (command.toUpperCase()) {
+          case "PRODUCTS":
+            navigate("/products");
+            break;
+          case "HOME":
+            navigate("/dashboard");
+            break;
+          case "STORE":
+            navigate("/store_page");
+            break;
+          case "PROFILE":
+            navigate("/profile");
+            break;
+          default:
+            console.log("Unknown command:", command);
+        }
+      }
     }
-  }, [messages]);
+  }, [messages, navigate]);
 
   // Listen for whisper progress custom events (dispatch these from transcriber implementation)
   useEffect(() => {
@@ -172,6 +215,14 @@ const BottomNav = () => {
               <div className="rounded bg-white/10 px-2 py-1">
                 <span className="text-blue-200">You: </span>
                 <span>{transcript}</span>
+              </div>
+            )}
+
+            {/* Show assistant response */}
+            {assistantResponse && (
+              <div className="rounded bg-indigo-500/20 px-2 py-1">
+                <span className="text-indigo-200">AI: </span>
+                <span>{assistantResponse}</span>
               </div>
             )}
 

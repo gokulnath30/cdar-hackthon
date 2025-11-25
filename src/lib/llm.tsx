@@ -12,9 +12,9 @@ export function getGenerator() {
     generatorPromise = pipeline('text-generation', modelName, {
       device: 'webgpu',
       dtype: 'q4f16', // The console warning "VerifyEachNodeIsAssignedToAnEp" is normal for WebGPU and can be ignored.
-      progress_callback: p => {
-        console.log('[LLM] Loading progress:', p);
-      }
+      // progress_callback: p => {
+      //   console.log('[LLM] Loading progress:', p);
+      // }
     }).catch((e) => {
       // If loading fails, reset the promise so we can try again later
       console.error("[LLM] Failed to load model:", e);
@@ -50,7 +50,7 @@ export async function generateFromPrompt(
       return_full_text: false, // ❗ prevents the model from echoing prompt
       stop: ["USER:", "SYSTEM:", "ASSISTANT:"], // ❗ stops after first assistant reply
     });
-    console.log("[LLM] Raw output:", out);
+    // console.log("[LLM] Raw output:", out);
     let text = "";
     if (Array.isArray(out) && out.length && out[0].generated_text) {
       text = out[0].generated_text;

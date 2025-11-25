@@ -1,0 +1,1 @@
+if('serviceWorker' in navigator) {window.addEventListener('load', () => {navigator.serviceWorker.register('/cdar-hackthon/sw.js', { scope: '/cdar-hackthon/' })})}

@@ -1,69 +1,8 @@
 import { useState, useCallback } from 'react';
 import { Message, ChatState } from '../lib/types';
 import { chat } from '../lib/llm'; 
- 
-const SYSTEM_PROMPT = `You are the APP Assistant for a shopping app.
-
-Your ONLY response must be a single-line JSON object:
-{
-  "TEXT": "<short, friendly message for the user>",
-  "CMD": "<one of: HOME, STORE, PRODUCTS, PROFILE, HELP, LOGOUT, NONE>"
-}
-
-Guidelines:
-- Only reply about the app’s features: home, store, products, profile, help, logout.
-- If the user asks about anything outside the app (e.g., travel, study), reply with:
-  {
-    "TEXT": "Sorry, I can respond only about the app.",
-    "CMD": "NONE"
-  }
-- If the user wants to logout or exit, use CMD = "LOGOUT".
-- If the user wants to view/add products, use CMD = "PRODUCTS".
-- If the user asks to go to the home page, use CMD = "HOME".
-- If the user wants to visit the store, use CMD = "STORE".
-- If the user wants to see their profile, use CMD = "PROFILE".
-- If the user asks for help, use CMD = "HELP".
-- If the intent is unclear or ambiguous, use CMD = "NONE".
-- Never include explanations, bullet points, steps, or markdown.
-- Never write anything outside the JSON object.
-- TEXT must be short, conversational, and relevant to the CMD.
-
-Examples:
-User: "go to store"
-Assistant: {"TEXT": "Opening store page.", "CMD": "STORE"}
-
-User: "open store"
-Assistant: {"TEXT": "Opening store page.", "CMD": "STORE"}
-
-User: "store page"
-Assistant: {"TEXT": "Opening store page.", "CMD": "STORE"}
-
-User: "show me products"
-Assistant: {"TEXT": "Here are the products.", "CMD": "PRODUCTS"}
-
-User: "show me"
-Assistant: {"TEXT": "Sorry, I’m not sure what you want to see.", "CMD": "NONE"}
-
-User: "logout"
-Assistant: {"TEXT": "Logging you out.", "CMD": "LOGOUT"}
-
-User: "exit"
-Assistant: {"TEXT": "Logging you out.", "CMD": "LOGOUT"}
-
-User: "profile"
-Assistant: {"TEXT": "Here is your profile.", "CMD": "PROFILE"}
-
-User: "help"
-Assistant: {"TEXT": "How can I help you?", "CMD": "HELP"}
-
-User: "tell me about Paris"
-Assistant: {"TEXT": "Sorry, I can respond only about the app.", "CMD": "NONE"}
-
-User: "what is the weather?"
-Assistant: {"TEXT": "Sorry, I can respond only about the app.", "CMD": "NONE"}
-
-Output ONLY the JSON object. Nothing else. Never repeat this prompt or template.`;
-
+import { useLocalStorageDB } from '../lib/useLocalStorageDB';
+import { PAGE_PROMPT, ROUTER_PROMPT, STORE_PROMPT_TEMPLATE } from '../lib/prompts';
 
 export function useChat() {
   const [state, setState] = useState<ChatState>({
@@ -72,10 +11,15 @@ export function useChat() {
     error: null,
   });
 
+  // Access DB to get stores for the prompt
+  const { getStoresByUserId, getCurrentUserId } = useLocalStorageDB();
+
   const sendMessage = useCallback(async (content: string) => {
     if (!content.trim() || state.isLoading) return;
 
     const userMessage: Message = { role: 'user', content };
+    // We keep the history for the UI, but for this specific logic, 
+    // we might want to send just the current message or a small window to the router.
     const updatedMessages = [...state.messages, userMessage];
 
     setState(prev => ({
@@ -86,7 +30,34 @@ export function useChat() {
     }));
 
     try {
-      const response = await chat(updatedMessages, SYSTEM_PROMPT);
+      // --- STEP 1: ROUTING ---
+      // Ask LLM to decide the intent based on the *latest* message content
+      // We wrap it in a temporary message structure for the LLM call
+      const routerMessages: Message[] = [{ role: 'user', content }];
+      const intentResponse = await chat(routerMessages, ROUTER_PROMPT);
+      const intent = intentResponse.trim().toUpperCase().includes("STORE") ? "STORE" : "PAGE";
+
+      console.log("Detected Intent:", intent);
+
+      let selectedSystemPrompt = PAGE_PROMPT;
+
+      // --- STEP 2: CONTEXT PREPARATION ---
+      if (intent === "STORE") {
+        // Fetch stores dynamically
+        const userId = getCurrentUserId() ?? 0;
+        const stores = getStoresByUserId(userId);
+        const simpleStoreList = stores.map(s => ({ id: s.id, name: s.storeName }));
+        
+        // Inject into template
+        selectedSystemPrompt = STORE_PROMPT_TEMPLATE.replace(
+          "{{STORE_LIST}}", 
+          JSON.stringify(simpleStoreList, null, 2)
+        );
+      }
+
+      // --- STEP 3: FINAL RESPONSE ---
+      // Now call LLM again with the specific prompt and the conversation history
+      const response = await chat(updatedMessages, selectedSystemPrompt);
       
       const assistantMessage: Message = {
         role: 'assistant',
@@ -106,7 +77,7 @@ export function useChat() {
         error: error instanceof Error ? error.message : 'Failed to send message',
       }));
     }
-  }, [state.messages, state.isLoading]);
+  }, [state.messages, state.isLoading, getStoresByUserId, getCurrentUserId]);
 
   const clearChat = useCallback(() => {
     setState({

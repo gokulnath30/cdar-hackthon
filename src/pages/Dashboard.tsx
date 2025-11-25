@@ -11,7 +11,7 @@ const Dashboard = () => {
   const userid = getCurrentUserId();
 
   const todayAudits = getStoresByUserId(userid ?? 0);
-
+  
   const currentUser = {
     ...getUserById(userid ?? 0),
   }

@@ -12,9 +12,16 @@ export function getGenerator() {
     generatorPromise = pipeline('text-generation', modelName, {
       device: 'webgpu',
       dtype: 'q4f16', // The console warning "VerifyEachNodeIsAssignedToAnEp" is normal for WebGPU and can be ignored.
-      // progress_callback: p => {
-      //   console.log('[LLM] Loading progress:', p);
-      // }
+      progress_callback: (p: any) => {
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('llm-progress', { detail: p }));
+        }
+      }
+    }).then((gen) => {
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('llm-progress', { detail: { status: 'complete' } }));
+      }
+      return gen;
     }).catch((e) => {
       // If loading fails, reset the promise so we can try again later
       console.error("[LLM] Failed to load model:", e);
@@ -48,7 +55,7 @@ export async function generateFromPrompt(
       max_new_tokens,
       temperature: 0.2,
       return_full_text: false, // ❗ prevents the model from echoing prompt
-      stop: ["USER:", "SYSTEM:", "ASSISTANT:"], // ❗ stops after first assistant reply
+      stop: ["USER:", "SYSTEM:", "ASSISTANT:", "##", "Step"], // ❗ stops after first assistant reply
     });
     // console.log("[LLM] Raw output:", out);
     let text = "";
@@ -59,11 +66,13 @@ export async function generateFromPrompt(
     } else {
       text = JSON.stringify(out);
     }
-
+    console.log("[LLM] Generated text:", text);
     // Extract JSON object if found, to ignore any conversational filler
-    const jsonMatch = text.match(/\{[\s\S]*?\}/);
-    if (jsonMatch) {
-      return jsonMatch[0];
+    const jsonMatches = text.match(/\{[\s\S]*?\}/g);
+    if (jsonMatches) {
+      // Prioritize the JSON that looks like our command structure (contains "WORKER")
+      const commandJson = jsonMatches.find(m => m.includes('"WORKER"'));
+      return commandJson || jsonMatches[0];
     }
 
     return text.trim();

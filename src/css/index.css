@@ -12,7 +12,6 @@ audio::-webkit-media-controls-panel {
     background-color: white;
 }
 
-.container {
-    width: 41rem /* 656px */;
-    max-width: 95vw;
+button[aria-label="Start recording"] {
+    color: white;
 }

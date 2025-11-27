@@ -1,4 +1,4 @@
-import { pipeline } from '@huggingface/transformers';
+import { pipeline, TextStreamer } from '@huggingface/transformers';
 
 let generatorPromise: Promise<any> | null = null;
 
@@ -6,7 +6,12 @@ let generatorPromise: Promise<any> | null = null;
  * Loads the model (WebGPU) once and returns a generator instance.
  */
 export function getGenerator() {
-  const modelName = 'onnx-community/Llama-3.2-1B-Instruct-q4f16';
+  // const modelName = 'onnx-community/Llama-3.2-1B-Instruct-q4f16'; onnx-community/Qwen3-0.6B-ONNX
+  
+  // const modelName = 'onnx-community/SmolLM2-135M-ONNX';
+
+  const modelName = 'onnx-community/Qwen3-0.6B-ONNX';
+
   if (!generatorPromise) {
     console.log('[LLM] Loading model...');
     generatorPromise = pipeline('text-generation', modelName, {
@@ -32,7 +37,6 @@ export function getGenerator() {
   return generatorPromise;
 }
 
-
 /**
  * Generates text from a prompt.
  */
@@ -47,59 +51,127 @@ export async function generateFromPrompt(
     throw new Error("Model failed to load.");
   }
 
-  // ❗ Increased limit to ensure JSON responses aren't cut off
+  // Reduced tokens since we want short responses
   const max_new_tokens = opts?.max_new_tokens ?? 128;
 
   try {
-    const out = await gen(prompt, {
+    // Wrap single prompt in user message for chat-tuned models
+    const messages = [
+      { role: "user", content: prompt },
+    ];
+
+    const out = await gen(messages, {
       max_new_tokens,
-      temperature: 0.2,
-      return_full_text: false, // ❗ prevents the model from echoing prompt
-      stop: ["USER:", "SYSTEM:", "ASSISTANT:", "##", "Step"], // ❗ stops after first assistant reply
+      do_sample: false, // Greedy decoding
     });
-    // console.log("[LLM] Raw output:", out);
+    
     let text = "";
     if (Array.isArray(out) && out.length && out[0].generated_text) {
-      text = out[0].generated_text;
+      const lastMessage = out[0].generated_text.at(-1);
+      text = lastMessage?.content || "";
     } else if (typeof out === "string") {
       text = out;
     } else {
       text = JSON.stringify(out);
     }
-    console.log("[LLM] Generated text:", text);
-    // Extract JSON object if found, to ignore any conversational filler
-    const jsonMatches = text.match(/\{[\s\S]*?\}/g);
-    if (jsonMatches) {
-      // Prioritize the JSON that looks like our command structure (contains "WORKER")
-      const commandJson = jsonMatches.find(m => m.includes('"WORKER"'));
-      return commandJson || jsonMatches[0];
-    }
-
-    return text.trim();
+    
+    console.log("[LLM] Raw generated text:", text);
+    
+    // ❗ Enhanced cleaning pipeline
+    const cleaned = cleanLLMOutput(text);
+    console.log("[LLM] Cleaned output:", cleaned);
+    
+    return cleaned;
   } catch (err: any) {
-    // Handle WebGPU device loss or other errors
     console.error("[LLM] Generation error:", err);
-    generatorPromise = null; // Reset so next call re-initializes
+    generatorPromise = null;
     throw err;
   }
 }
 
+/**
+ * Enhanced cleaning for small model outputs
+ */
+function cleanLLMOutput(text: string): string {
+  if (!text) return "";
+  
+  let cleaned = text;
+  
+  // 0. Remove <think> blocks (common in reasoning models)
+  cleaned = cleaned.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+  
+  // 1. Remove all ASSISTANT: repetitions
+  cleaned = cleaned.replace(/ASSISTANT:\s*/g, '');
+  
+  // 2. Extract content before any repetition or new ASSISTANT
+  const firstResponse = cleaned.split('ASSISTANT')[0].trim();
+  
+  // 3. Remove repeated lines (common in small models)
+  const lines = firstResponse.split('\n').filter((line, index, arr) => {
+    // Remove duplicate consecutive lines
+    return index === 0 || line.trim() !== arr[index - 1].trim();
+  });
+  
+  cleaned = lines[0] || ''; // Take only the first unique line
+  
+  // 4. Look for JSON structure first
+  const jsonMatch = cleaned.match(/\{[^{}]*\}/);
+  if (jsonMatch) {
+    try {
+      // Validate it's proper JSON
+      JSON.parse(jsonMatch[0]);
+      return jsonMatch[0];
+    } catch (e) {
+      // Not valid JSON, continue with other cleaning
+    }
+  }
+  
+  // 5. For ROUTER_PROMPT, extract only STORE or PAGE
+  const singleWordMatch = cleaned.match(/\b(STORE|PAGE)\b/);
+  if (singleWordMatch) {
+    return singleWordMatch[0];
+  }
+  
+  // 6. Final cleanup - remove any remaining conversational fluff
+  cleaned = cleaned
+    .replace(/^(Open|Show|Go to|Take me to|I'll|Let me)\s+/i, '')
+    .replace(/\.$/, '') // Remove trailing period
+    .trim();
+    
+  return cleaned || "NONE"; // Fallback
+}
 
 export async function chat(
   messages: { role: string; content: string }[],
   systemPrompt: string
 ) {
-  // ❗ Fix: Only use the latest user message.
-  // Previous logic stacked multiple USER messages without ASSISTANT replies, confusing the model.
-  // For voice commands, we usually only care about the immediate request.
-  const lastUserMsg = messages.filter(m => m.role === 'user').pop();
+  let gen;
+  try {
+    gen = await getGenerator();
+  } catch (e) {
+    throw new Error("Model failed to load.");
+  }
 
-  if (!lastUserMsg) return "";
+  // Construct messages array for the pipeline
+  const conversation = [
+    { role: 'system', content: systemPrompt },
+    ...messages
+  ];
 
-  const prompt =
-    `SYSTEM: ${systemPrompt}\n` +
-    `USER: ${lastUserMsg.content}\n` +
-    'ASSISTANT:';
+  try {
+    const output = await gen(conversation, {
+      max_new_tokens: 300,
+      do_sample: false,
+      streamer: new TextStreamer(gen.tokenizer, { skip_prompt: true, skip_special_tokens: true }),
+    });
 
-  return await generateFromPrompt(prompt);
+    const response = output[0].generated_text.at(-1).content;
+    console.log("[LLM] Chat Raw:", response);
+    
+    const cleaned = cleanLLMOutput(response);
+    return cleaned;
+  } catch (err) {
+    console.error("[LLM] Chat error:", err);
+    throw err;
+  }
 }

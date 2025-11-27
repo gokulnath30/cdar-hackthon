@@ -7,6 +7,7 @@ import Constants from "../utils/Constants";
 export const useVoiceAssistant = () => {
   const navigate = useNavigate();
   const [isRecording, setIsRecording] = useState(false);
+  const [isMuted, setIsMuted] = useState(false);
   const [showOverlay, setShowOverlay] = useState(false);
   const [transcript, setTranscript] = useState<string>("");
   const [assistantResponse, setAssistantResponse] = useState<string>("");
@@ -23,6 +24,15 @@ export const useVoiceAssistant = () => {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const lastProcessedMessageRef = useRef<string | null>(null);
+
+  const toggleMute = () => {
+    setIsMuted((prev) => {
+      if (!prev) {
+        window.speechSynthesis.cancel();
+      }
+      return !prev;
+    });
+  };
 
   const startRecording = async () => {
     try {
@@ -94,7 +104,8 @@ export const useVoiceAssistant = () => {
         setIsTranscribing(false);
         setIsRecording(false);
 
-        if (text.trim()) {
+        const trimmed = text.trim();
+        if (trimmed && !trimmed.startsWith("[")) {
           sendMessage(text);
         }
       }
@@ -127,7 +138,7 @@ export const useVoiceAssistant = () => {
 
       setAssistantResponse(textToSpeak);
 
-      if (textToSpeak) {
+      if (textToSpeak && !isMuted) {
         window.speechSynthesis.cancel();
         const utterance = new SpeechSynthesisUtterance(textToSpeak);
         window.speechSynthesis.speak(utterance);
@@ -155,7 +166,7 @@ export const useVoiceAssistant = () => {
         
       
     }
-  }, [messages, navigate]);
+  }, [messages, navigate, isMuted]);
 
   // Progress Listeners
   useEffect(() => {
@@ -195,6 +206,8 @@ export const useVoiceAssistant = () => {
     llmProgress,
     handleMicClick,
     stopRecording,
-    startRecording
+    startRecording,
+    isMuted,
+    toggleMute
   };
 };

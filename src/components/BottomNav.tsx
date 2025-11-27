@@ -1,5 +1,5 @@
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
-import { Home, MapPin, ShoppingBag, LogOut, Mic, User } from "lucide-react";
+import { Home, MapPin, ShoppingBag, LogOut, Mic, User, Volume2, VolumeX } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { useVoiceAssistant } from "../hooks/useVoiceAssistant";
 import VoiceOverlay from "./VoiceOverlay";
@@ -67,6 +67,20 @@ const BottomNav = () => {
           </li>
         </ul>
       </nav>
+
+      {/* Mute Button */}
+      <Button
+        size="icon"
+        className={`fixed bottom-40 right-8 rounded-full shadow-lg w-10 h-10 z-50 transition-all md:hidden ${
+          voice.isMuted 
+            ? "bg-gray-200 text-gray-600 hover:bg-gray-300" 
+            : "bg-white text-primary hover:bg-gray-50"
+        }`}
+        onClick={voice.toggleMute}
+        aria-label={voice.isMuted ? "Unmute AI" : "Mute AI"}
+      >
+        {voice.isMuted ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
+      </Button>
 
       {/* 4. Floating Action Button (FAB) */}
       {/* Connected to the hook's state (isRecording) and handler (handleMicClick) */}

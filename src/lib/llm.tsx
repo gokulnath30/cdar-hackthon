@@ -160,7 +160,7 @@ export async function chat(
 
   try {
     const output = await gen(conversation, {
-      max_new_tokens: 300,
+      max_new_tokens: 256,
       do_sample: false,
       streamer: new TextStreamer(gen.tokenizer, { skip_prompt: true, skip_special_tokens: true }),
     });
